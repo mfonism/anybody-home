@@ -13,39 +13,56 @@ from googleapiclient.errors import HttpError
 
 load_dotenv()
 
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+
+def auth(scopes=None):
+    scopes = scopes.copy()
+
+    def auth_decorator(func):
+        def wrapper(*args, **kwargs):
+            credentials_dir = pathlib.Path().parent / "credentials"
+            token_file_path = credentials_dir / "token.json"
+
+            creds = None
+            if token_file_path.exists():
+                creds = Credentials.from_authorized_user_file(token_file_path, scopes)
+
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                else:
+                    creds_file_path = credentials_dir / "credentials.json"
+                    flow = InstalledAppFlow.from_client_secrets_file(
+                        creds_file_path, scopes
+                    )
+                    creds = flow.run_local_server(port=0)
+
+                token_file_path.write_text(creds.to_json())
+
+            return func(*args, **kwargs, credentials=creds)
+
+        return wrapper
+
+    return auth_decorator
 
 
-def main():
-    CREDENTIALS_DIR = pathlib.Path().parent / "credentials"
-
-    token_file_path = CREDENTIALS_DIR / "token.json"
-    creds = None
-    if token_file_path.exists():
-        creds = Credentials.from_authorized_user_file(token_file_path, SCOPES)
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            creds_file_path = CREDENTIALS_DIR / "credentials.json"
-            flow = InstalledAppFlow.from_client_secrets_file(creds_file_path, SCOPES)
-            creds = flow.run_local_server(port=0)
-
-        token_file_path.write_text(creds.to_json())
-
+@auth(scopes=["https://www.googleapis.com/auth/calendar.readonly"])
+def fetch_eng_ooos(credentials=None):
     try:
-        service = build("calendar", "v3", credentials=creds)
-
+        service = build("calendar", "v3", credentials=credentials)
         page_token = None
         page_count = 0
+
         ooos = []
         while True:
             page_count += 1
 
             events = (
                 service.events()
-                .list(calendarId=os.getenv("OOO_ENG_CALENDAR_ID"), pageToken=page_token)
+                .list(
+                    calendarId=os.getenv("OOO_ENG_CALENDAR_ID"),
+                    pageToken=page_token,
+                    maxResults=2,
+                )
                 .execute()
             )
 
@@ -82,10 +99,13 @@ def main():
             if not page_token or page_count >= 2:
                 break
 
-        pprint(ooos)
+        return ooos
+
     except HttpError as error:
         print(f"An error occured: {error}")
 
 
 if __name__ == "__main__":
-    main()
+    res = fetch_eng_ooos()
+    pprint("Fetched!")
+    pprint(res)
