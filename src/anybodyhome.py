@@ -1,5 +1,6 @@
 import datetime
 import pathlib
+import pprint
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -30,29 +31,20 @@ def main():
 
     try:
         service = build("calendar", "v3", credentials=creds)
+        calendar = service.calendars().get(calendarId="")
 
-        now = datetime.datetime.utcnow().isoformat() + "Z"
-        print("Getting the upcoming 10 events")
-        events_result = (
-            service.events()
-            .list(
-                calendarId="primary",
-                timeMin=now,
-                maxResults=10,
-                singleEvents=True,
-                orderBy="startTime",
-            )
-            .execute()
-        )
-        events = events_result.get("items", [])
-
-        if not events:
-            print("No upcoming events found.")
-            return
-
-        for event in events:
-            start = event["start"].get("dateTime", event["start"].get("date"))
-            print(start, event["summary"])
+        page_token = None
+        while True:
+            calendar_list = service.calendarList().list(pageToken=page_token).execute()
+            print("Calendar List")
+            pprint.pprint(calendar_list)
+            print()
+            print()
+            for calendar_list_entry in calendar_list["items"]:
+                print(calendar_list_entry["summary"])
+            page_token = calendar_list.get("nextPageToken")
+            if not page_token:
+                break
 
     except HttpError as error:
         print(f"An error occured: {error}")
