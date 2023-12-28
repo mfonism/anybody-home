@@ -1,12 +1,17 @@
-import datetime
+from datetime import datetime
 import pathlib
-import pprint
+from pprint import pprint
+import os
 
+from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+
+
+load_dotenv()
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
@@ -31,21 +36,53 @@ def main():
 
     try:
         service = build("calendar", "v3", credentials=creds)
-        calendar = service.calendars().get(calendarId="")
 
         page_token = None
+        page_count = 0
+        ooos = []
         while True:
-            calendar_list = service.calendarList().list(pageToken=page_token).execute()
-            print("Calendar List")
-            pprint.pprint(calendar_list)
-            print()
-            print()
-            for calendar_list_entry in calendar_list["items"]:
-                print(calendar_list_entry["summary"])
-            page_token = calendar_list.get("nextPageToken")
-            if not page_token:
+            page_count += 1
+
+            events = (
+                service.events()
+                .list(calendarId=os.getenv("OOO_ENG_CALENDAR_ID"), pageToken=page_token)
+                .execute()
+            )
+
+            for event in events["items"]:
+                if event["status"] == "cancelled":
+                    continue
+
+                ooo = {"creator": event["creator"]["email"]}
+                ooo["start"] = ooo_start = dict()
+                ooo["end"] = ooo_end = dict()
+                ooos.append(ooo)
+
+                event_start = event["start"]
+                start_date = event_start.get("date")
+                if start_date is not None:
+                    ooo_start["date"] = datetime.strptime(start_date, "%Y-%m-%d")
+                else:
+                    ooo_start["date_time"] = datetime.fromisoformat(
+                        event_start["dateTime"]
+                    )
+                    if timezone := event_start.get("timeZone") and timezone is not None:
+                        ooo_start["time_zone"] = timezone
+
+                event_end = event["end"]
+                end_date = event_end.get("date")
+                if end_date is not None:
+                    ooo_end["date"] = datetime.strptime(end_date, "%Y-%m-%d")
+                else:
+                    ooo_end["date_time"] = datetime.fromisoformat(event_end["dateTime"])
+                    if timezone := event_end.get("timeZone") and timezone is not None:
+                        ooo_end["time_zone"] = timezone
+
+            page_token = events.get("nextPageToken")
+            if not page_token or page_count >= 2:
                 break
 
+        pprint(ooos)
     except HttpError as error:
         print(f"An error occured: {error}")
 
